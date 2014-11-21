@@ -47,7 +47,10 @@ team_t team = {
 #define GET_FLAG(p) ((*p) & 1)
 
 // Set allocated flag
-#define SET_FLAG(p) ((*p) = ((*p) | 1))
+#define SET_FLAG(p)                 ((*p) = ((*p) | 1))
+
+// set size and allocated flag
+#define SET_SIZE_AND_FLAG(p,size)   ((*p) = size | 1)
 
 // Get block size
 #define GET_SIZE(p) (size_t)((*p) & ~1)
@@ -83,6 +86,21 @@ void *find_fit(size_t size) {
 }
 
 
+void split_heap(size_t *header, size_t *footer, size_t size) {
+    size_t allsize = GET_SIZE(header);
+    size_t size2 = allsize - size;
+    if (size2 <= 2 * SIZE_T_SIZE) {
+        SET_FLAG(header);
+        SET_FLAG(footer);
+    } else {
+        size_t *header2 = (size_t *)((char *)footer + SIZE_T_SIZE);
+        size_t *footer2 = (size_t *)((char *)header2 + size2 - SIZE_T_SIZE);
+    
+        SET_SIZE_AND_FLAG(header2, size2);
+        SET_SIZE_AND_FLAG(footer2, size2);
+    }
+}
+
 
 /* 
  * mm_malloc - Allocate a block by incrementing the brk pointer.
@@ -90,19 +108,59 @@ void *find_fit(size_t size) {
  */
 void *mm_malloc(size_t size)
 {
-    size_t newsize = ALIGN(size + SIZE_T_SIZE);
+    size_t newsize = ALIGN(size + 2 * SIZE_T_SIZE);
     size_t *header = find_fit(newsize);
+    size_t *footer;
     if (header == NULL) {
 	    if ((header = mem_sbrk(newsize)) == (void *)-1)
             return NULL;
-        *header = newsize | 1;
+        footer = (size_t *)((char *)header + newsize - SIZE_T_SIZE);
+        SET_SIZE_AND_FLAG(header, newsize);
+        SET_SIZE_AND_FLAG(footer, newsize);
         heap_end = header;
         if (heap_start == NULL )
             heap_start = header;
     } else {
+        footer = (size_t *)((char *)header + GET_SIZE(header) - SIZE_T_SIZE);
+        // split_heap(header, footer, newsize);
         SET_FLAG(header);
+        SET_FLAG(footer);
     }
     return (void *)((char *)header + SIZE_T_SIZE);
+}
+
+
+void top_coalesce(size_t *header) {
+        
+}
+
+void bottom_coalesce(size_t *header) {}
+
+void top_and_bottom_coalesce(size_t *header) {
+
+}
+
+void coalesce(size_t *p) {
+    size_t *top_header = (size_t *)((char *)p + GET_SIZE(p));
+    size_t *bottom_footer = (size_t *)((char *)p - SIZE_T_SIZE);
+    if (p == heap_start && p != heap_end) {
+        if (GET_FLAG(top_header) == 0) {
+            top_coalesce(p);
+        }
+    } else if (p != heap_start && p == heap_end) {
+        if (GET_FLAG(bottom_footer) == 0) {
+            bottom_coalesce(p);
+        }
+    } else if (p != heap_start && p != heap_end) {
+        if (GET_FLAG(top_header) == 0 && GET_FLAG(bottom_footer) == 0) {
+            top_coalesce(p);
+            bottom_coalesce(p);
+        } else if (GET_FLAG(top_header) == 0) {
+            top_coalesce(p);
+        } else if (GET_FLAG(bottom_footer) == 0) {
+            bottom_coalesce(p);
+        }
+    }
 }
 
 /*
@@ -111,7 +169,9 @@ void *mm_malloc(size_t size)
 void mm_free(void *ptr)
 {
     size_t *header = (size_t *)((char *)ptr - SIZE_T_SIZE);
+    size_t *footer = (size_t *)((char *)header + GET_SIZE(header) - SIZE_T_SIZE);
     *header = *header & -2;
+    *footer = *footer & -2;
 }
 
 /*
