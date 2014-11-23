@@ -51,10 +51,22 @@ team_t team = {
 
 // set size and allocated flag
 #define SET_SIZE_AND_FLAG(p,size)   ((*p) = size | 1)
+#define SET_SIZE(p,size)            ((*p) = size)
 
 // Get block size
 #define GET_SIZE(p) (size_t)((*p) & ~1)
 
+// Get footer from header
+#define GET_FOOTER_FROM_HEADER(p)    (size_t*)((char*)p+GET_SIZE(p)-SIZE_T_SIZE);
+
+// Get header from footer
+#define GET_HEADER_FROM_FOOTER(p)    (size_t*)((char*)p-GET_SIZE(p)+SIZE_T_SIZE);
+
+// Get next header
+#define GET_NEXT_HEADER(p)  (size_t*)((char*)p + GET_SIZE(p))
+
+// Declaer prototype for mm_check
+int mm_check(void);
 
 // top and bottom pointers of heap
 void *heap_start;
@@ -93,11 +105,13 @@ void split_heap(size_t *header, size_t *footer, size_t size) {
         SET_FLAG(header);
         SET_FLAG(footer);
     } else {
-        size_t *header2 = (size_t *)((char *)footer + SIZE_T_SIZE);
-        size_t *footer2 = (size_t *)((char *)header2 + size2 - SIZE_T_SIZE);
+        size_t *newheader = (size_t *)((char *)header + size);
+        size_t *newfooter = (size_t *)((char *)newheader - SIZE_T_SIZE);
     
-        SET_SIZE_AND_FLAG(header2, size2);
-        SET_SIZE_AND_FLAG(footer2, size2);
+        SET_SIZE_AND_FLAG(newheader, size2);
+        SET_SIZE_AND_FLAG(newfooter, size);
+        SET_SIZE_AND_FLAG(header, size);
+        SET_SIZE_AND_FLAG(footer, size2);
     }
 }
 
@@ -117,7 +131,7 @@ void *mm_malloc(size_t size)
         footer = (size_t *)((char *)header + newsize - SIZE_T_SIZE);
         SET_SIZE_AND_FLAG(header, newsize);
         SET_SIZE_AND_FLAG(footer, newsize);
-        heap_end = header;
+        heap_end = footer;
         if (heap_start == NULL )
             heap_start = header;
     } else {
@@ -130,37 +144,60 @@ void *mm_malloc(size_t size)
 }
 
 
-void top_coalesce(size_t *header) {
-        
+void top_coalesce(size_t *header, size_t *top_header) {
+    size_t newsize = GET_SIZE(header) + GET_SIZE(top_header);
+    size_t *top_footer = GET_FOOTER_FROM_HEADER(top_header);
+    size_t *footer = GET_FOOTER_FROM_HEADER(header);
+    SET_SIZE(header, newsize);
+    SET_SIZE(top_footer, newsize);
 }
 
-void bottom_coalesce(size_t *header) {}
-
-void top_and_bottom_coalesce(size_t *header) {
-
+void bottom_coalesce(size_t *header, size_t *bottom_footer) {
+    size_t newsize = GET_SIZE(header) + GET_SIZE(bottom_footer);
+    size_t *bottom_header = (size_t *)((char *)header - GET_SIZE(bottom_footer));
+    size_t *footer = GET_FOOTER_FROM_HEADER(header);
+    SET_SIZE(footer, newsize);
+    SET_SIZE(bottom_header, newsize);
 }
 
+void top_and_bottom_coalesce(size_t *header, size_t *top_header, size_t *bottom_footer) {
+    size_t *bottom_header = GET_HEADER_FROM_FOOTER(bottom_footer);
+    size_t *top_footer = GET_FOOTER_FROM_HEADER(top_header);
+    size_t newsize = GET_SIZE(bottom_header) + GET_SIZE(header) + GET_SIZE(top_footer);
+    SET_SIZE(bottom_header, newsize);
+    SET_SIZE(top_footer, newsize);
+}
+
+// p equals header
 void coalesce(size_t *p) {
     size_t *top_header = (size_t *)((char *)p + GET_SIZE(p));
     size_t *bottom_footer = (size_t *)((char *)p - SIZE_T_SIZE);
-    if (p == heap_start && p != heap_end) {
+    size_t *footer = GET_FOOTER_FROM_HEADER(p);
+    if (p == heap_start && footer != heap_end) {
         if (GET_FLAG(top_header) == 0) {
-            top_coalesce(p);
+            top_coalesce(p, top_header);
+            return;
         }
-    } else if (p != heap_start && p == heap_end) {
+    } else if (p != heap_start && footer == heap_end) {
         if (GET_FLAG(bottom_footer) == 0) {
-            bottom_coalesce(p);
+            bottom_coalesce(p, bottom_footer);
+            return;
         }
-    } else if (p != heap_start && p != heap_end) {
+    } else if (p != heap_start && footer != heap_end) {
         if (GET_FLAG(top_header) == 0 && GET_FLAG(bottom_footer) == 0) {
-            top_coalesce(p);
-            bottom_coalesce(p);
+            top_and_bottom_coalesce(p, top_header, bottom_footer);
+            return;
         } else if (GET_FLAG(top_header) == 0) {
-            top_coalesce(p);
+            top_coalesce(p,top_header);
+            return;
         } else if (GET_FLAG(bottom_footer) == 0) {
-            bottom_coalesce(p);
+            bottom_coalesce(p,bottom_footer);
+            return;
         }
     }
+
+    SET_SIZE(p, GET_SIZE(p));
+    SET_SIZE(footer, GET_SIZE(footer));
 }
 
 /*
@@ -168,10 +205,22 @@ void coalesce(size_t *p) {
  */
 void mm_free(void *ptr)
 {
+    /* 
     size_t *header = (size_t *)((char *)ptr - SIZE_T_SIZE);
-    size_t *footer = (size_t *)((char *)header + GET_SIZE(header) - SIZE_T_SIZE);
-    *header = *header & -2;
-    *footer = *footer & -2;
+    size_t *footer = GET_FOOTER_FROM_HEADER(header);
+    SET_SIZE(header, GET_SIZE(header));
+    SET_SIZE(footer, GET_SIZE(footer));
+    */
+    
+    size_t *header = (size_t *)((char *)ptr - SIZE_T_SIZE);
+    coalesce(header);
+    
+     
+    if (!mm_check()) {
+        fprintf(stderr, "MISS - %p\n", header);
+        
+    }
+    
 }
 
 /*
@@ -196,14 +245,15 @@ void *mm_realloc(void *ptr, size_t size)
 
 
 
-
-
-
-
-
-
-
-
-
-
+int mm_check(void) {
+    size_t *p = heap_start;
+    while (p < (size_t *)heap_end) {
+        size_t *footer = GET_FOOTER_FROM_HEADER(p);
+        if ((*p) != (*footer)) {
+            return 0;
+        }
+        p = GET_NEXT_HEADER(p);
+    }
+    return 1;
+}
 
