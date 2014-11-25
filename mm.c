@@ -205,21 +205,16 @@ void coalesce(size_t *p) {
  */
 void mm_free(void *ptr)
 {
-    /* 
-    size_t *header = (size_t *)((char *)ptr - SIZE_T_SIZE);
-    size_t *footer = GET_FOOTER_FROM_HEADER(header);
-    SET_SIZE(header, GET_SIZE(header));
-    SET_SIZE(footer, GET_SIZE(footer));
-    */
     
     size_t *header = (size_t *)((char *)ptr - SIZE_T_SIZE);
     coalesce(header);
     
-     
+    /* 
     if (!mm_check()) {
         fprintf(stderr, "MISS - %p\n", header);
         
     }
+    */
     
 }
 
